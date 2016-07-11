@@ -1,0 +1,25 @@
+{
+  "name": "ModSecurity-Nodejs-Connectors",
+  "version": "0.0.1",
+  "description": "ModSecurity Nodejs Connectors",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/manishmalik/ModSecurity-Nodejs-Connectors"
+  },
+  "keywords": [
+    "ModSecurity",
+    "Web",
+    "Application",
+    "Firewall",
+    "WAF"
+  ],
+  "author": "Manish Malik",
+  "license": "BSD-2-Clause",
+  "bugs": {
+    "url": "https://github.com/manishmalik/ModSecurity-Nodejs-Connectors/issues"
+  }
+}
