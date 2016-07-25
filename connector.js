@@ -17,6 +17,22 @@
 module.exports = connector;
 var modsecurity = require('./Modsecurity-nodejs/build/Release/modsecurity');
 
+//For synchronous execution of asynchronous modsec functions
+function series(callbacks, last) {
+	function next() {
+		var callback = callbacks.shift();
+		if (callback) {
+			callback(function() {
+				// results.push(Array.prototype.slice.call(arguments));
+				next();
+			});
+		} else {
+			last();
+		}
+	}
+	next();
+}
+
 /*
 	Constructor for Connector
 	@rulesPath : Path to the rules files
@@ -33,6 +49,7 @@ function connector(key, rulesPath) {
 	//Instantiate new rules object
 	this.rules = new modsecurity.Rules();
 
+	this.debugLog = new modsecurity.DebugLog();
 
 	if ((rulesPath.indexOf('http://') !== -1) || (rulesPath.indexOf('www.') !== -1)) {
 		if (key) {
@@ -50,6 +67,84 @@ function connector(key, rulesPath) {
 	}
 }
 
+function processConnection(modsecConnector, req, res, syncNext) {
+	//Process Connection
+	ret = modsecConnector.modsecTransaction.processConnection(req.connection.remoteAddress, req.connection.remotePort, req.connection.localAddress, req.connection.localPort);
+	if (ret) {
+		modsecConnector.modsecTransaction.intervention(modsecConnector.modsecIntervention);
+		// console.log(modsecConnector.modsecIntervention);
+		if (modsecConnector.modsecIntervention.status !== 200) {
+			res.status(modsecConnector.modsecIntervention.status).send();
+		} else {
+			syncNext();
+		}
+	} else {
+		res.status(500).send();
+		return new Error("There are some unexpected error while running ModSecurity library");
+	}
+}
+
+function processURI(modsecConnector, req, res, syncNext) {
+	//fetch request URI
+	var fullUrl = req.protocol + '://' + req.get('host') + req.originalUrl;
+	// Process uri
+	ret = modsecConnector.modsecTransaction.processURI(fullUrl, req.method, req.httpVersion);
+	if (ret) {
+		modsecConnector.modsecTransaction.intervention(modsecConnector.modsecIntervention);
+		// console.log(modsecConnector.modsecIntervention);
+		if (modsecConnector.modsecIntervention.status !== 200) {
+			res.status(modsecConnector.modsecIntervention.status).send();
+		} else {
+			syncNext();
+		}
+	} else {
+		res.status(500).send();
+		return new Error("There are some unexpected error while running ModSecurity library");
+	}
+}
+
+function processRequestHeaders(modsecConnector, req, res, syncNext) {
+	// console.log(req.headers);
+	
+	Object.keys(req.headers).forEach(function(requestHeader) {
+		modsecConnector.modsecTransaction.addRequestHeader(requestHeader, req.headers[requestHeader]);
+		// console.log(req.headers[requestHeader]);
+	});
+	
+	ret = modsecConnector.modsecTransaction.processRequestHeaders();
+
+	if (ret) {
+		modsecConnector.modsecTransaction.intervention(modsecConnector.modsecIntervention);
+		// console.log(modsecConnector.modsecIntervention);
+		if (modsecConnector.modsecIntervention.status !== 200) {
+			res.status(modsecConnector.modsecIntervention.status).send();
+		} else {
+			syncNext();
+		}
+	} else {
+		res.status(500).send();
+		return new Error("There are some unexpected error while running ModSecurity library");
+	}
+}
+
+function processRequestBody(modsecConnector, req, res, syncNext) {
+
+	console.log(req.body);
+	syncNext();
+	/*
+	if (ret) {
+		modsecConnector.modsecTransaction.intervention(modsecConnector.modsecIntervention);
+		// console.log(modsecConnector.modsecIntervention);
+		if (modsecConnector.modsecIntervention.status !== 200) {
+			res.status(modsecConnector.modsecIntervention.status).send();
+		} else {
+			syncNext();
+		}
+	} else {
+		res.status(500).send();
+		return new Error("There are some unexpected error while running ModSecurity library");
+	}*/
+}
 connector.prototype = {
 	constructor: connector,
 	init: function() {
@@ -57,21 +152,21 @@ connector.prototype = {
 		return function(req, res, next) {
 			modsecConnector.modsecTransaction = new modsecurity.Transaction(modsecConnector.modsec, modsecConnector.rules, null);
 			modsecConnector.modsecIntervention = new modsecurity.ModSecurityIntervention();
-			// console.log('Client ip' + req.connection.remoteAddress + ' port: ' + req.connection.remotePort + ' Server IP: ' + req.connection.localAddress + ' Port: ' + req.connection.localPort);
-
-			//Process Connection
-			ret = modsecConnector.modsecTransaction.processConnection(req.connection.remoteAddress, req.connection.remotePort, req.connection.localAddress, req.connection.localPort);
-			if (ret) {
-				modsecConnector.modsecTransaction.intervention(modsecConnector.modsecIntervention);
-				if (modsecConnector.modsecIntervention.status !== 200) {
-					res.status(modsecConnector.modsecIntervention.status).send();
-				} else {
-					next();
+			series([
+				function(syncNext) {
+					processConnection(modsecConnector, req, res, syncNext);
+				},
+				function(syncNext) {
+					processURI(modsecConnector, req, res, syncNext);
+				},
+				function(syncNext) {
+					processRequestHeaders(modsecConnector, req, res, syncNext);
+				},
+				function(syncNext) {
+					processRequestBody(modsecConnector, req, res, syncNext);
 				}
-			} else {
-				res.status(500).send();
-				return new Error("There are some unexpected error while running ModSecurity library");
-			}
+			], next);
+
 		}
 	}
 }

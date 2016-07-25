@@ -23,6 +23,7 @@
     "url": "https://github.com/manishmalik/ModSecurity-Nodejs-Connectors/issues"
   },
   "dependencies": {
-    "express": "~4.14.0"
+    "express": "~4.14.0",
+    "body-parser": "~1.15.2"
   }
 }
