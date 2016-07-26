@@ -128,10 +128,8 @@ function processRequestHeaders(modsecConnector, req, res, syncNext) {
 }
 
 function processRequestBody(modsecConnector, req, res, syncNext) {
-
-	console.log(req.body);
-	syncNext();
-	/*
+	modsecConnector.modsecTransaction.appendRequestBody(JSON.stringify(req.body), JSON.stringify(req.body).length);
+	ret = modsecConnector.modsecTransaction.processRequestBody();
 	if (ret) {
 		modsecConnector.modsecTransaction.intervention(modsecConnector.modsecIntervention);
 		// console.log(modsecConnector.modsecIntervention);
@@ -143,7 +141,7 @@ function processRequestBody(modsecConnector, req, res, syncNext) {
 	} else {
 		res.status(500).send();
 		return new Error("There are some unexpected error while running ModSecurity library");
-	}*/
+	}
 }
 connector.prototype = {
 	constructor: connector,
