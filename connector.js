@@ -105,12 +105,12 @@ function processURI(modsecConnector, req, res, syncNext) {
 
 function processRequestHeaders(modsecConnector, req, res, syncNext) {
 	// console.log(req.headers);
-	
+
 	Object.keys(req.headers).forEach(function(requestHeader) {
 		modsecConnector.modsecTransaction.addRequestHeader(requestHeader, req.headers[requestHeader]);
 		// console.log(req.headers[requestHeader]);
 	});
-	
+
 	ret = modsecConnector.modsecTransaction.processRequestHeaders();
 
 	if (ret) {
@@ -128,8 +128,32 @@ function processRequestHeaders(modsecConnector, req, res, syncNext) {
 }
 
 function processRequestBody(modsecConnector, req, res, syncNext) {
+	console.log(JSON.stringify(req.body), JSON.stringify(req.body).length)
+	//TODO: Should parse body of non-json type
 	modsecConnector.modsecTransaction.appendRequestBody(JSON.stringify(req.body), JSON.stringify(req.body).length);
 	ret = modsecConnector.modsecTransaction.processRequestBody();
+	if (ret) {
+		modsecConnector.modsecTransaction.intervention(modsecConnector.modsecIntervention);
+		console.log(modsecConnector.modsecIntervention);
+		if (modsecConnector.modsecIntervention.status !== 200) {
+			res.status(modsecConnector.modsecIntervention.status).send();
+		} else {
+			syncNext();
+		}
+	} else {
+		res.status(500).send();
+		return new Error("There are some unexpected error while running ModSecurity library");
+	}
+}
+
+function processResponseHeaders(modsecConnector, req, res, syncNext) {
+	// console.log(res.header()._headers);
+	Object.keys(res.header()._headers).forEach(function(responseHeader) {
+		modsecConnector.modsecTransaction.addResponseHeader(responseHeader, res.header()._headers[responseHeader]);
+	});
+	console.log(modsecConnector.modsecIntervention.status);
+	ret = modsecConnector.modsecTransaction.processResponseHeaders(modsecConnector.modsecIntervention.status, "HTTP " + req.httpVersion);
+
 	if (ret) {
 		modsecConnector.modsecTransaction.intervention(modsecConnector.modsecIntervention);
 		// console.log(modsecConnector.modsecIntervention);
@@ -143,13 +167,35 @@ function processRequestBody(modsecConnector, req, res, syncNext) {
 		return new Error("There are some unexpected error while running ModSecurity library");
 	}
 }
+
+function processResponseBody(modsecConnector, req, res, syncNext) {
+	// console.log(res.body)
+	//TODO: Should parse body of non-json type
+	modsecConnector.modsecTransaction.appendRequestBody(JSON.stringify(res.body), JSON.stringify(res.body).length);
+	
+	ret = modsecConnector.modsecTransaction.processResponseBody();
+	if (ret) {
+		modsecConnector.modsecTransaction.intervention(modsecConnector.modsecIntervention);
+		// console.log(modsecConnector.modsecIntervention);
+		if (modsecConnector.modsecIntervention.status !== 200) {
+			res.status(modsecConnector.modsecIntervention.status).send();
+		} else {
+			syncNext();
+		}	
+	} else {
+		res.status(500).send();
+		return new Error("There are some unexpected error while running ModSecurity library");
+	}
+}
+
 connector.prototype = {
 	constructor: connector,
-	init: function() {
+	reqProcess: function() {
 		modsecConnector = this;
 		return function(req, res, next) {
 			modsecConnector.modsecTransaction = new modsecurity.Transaction(modsecConnector.modsec, modsecConnector.rules, null);
 			modsecConnector.modsecIntervention = new modsecurity.ModSecurityIntervention();
+			// Request processing		
 			series([
 				function(syncNext) {
 					processConnection(modsecConnector, req, res, syncNext);
@@ -161,10 +207,40 @@ connector.prototype = {
 					processRequestHeaders(modsecConnector, req, res, syncNext);
 				},
 				function(syncNext) {
-					processRequestBody(modsecConnector, req, res, syncNext);
+					//check if body exists
+					if (Object.keys(req.body).length !== 0) {
+						processRequestBody(modsecConnector, req, res, syncNext);
+					} else {
+						//skip process Body request.
+						syncNext();
+					}
 				}
 			], next);
-
+		}
+	},
+	resProcess: function() {
+		modsecConnector = this;
+		return function(req, res, next) {
+			//Response Processing
+			res.on('finish', function() {
+				series([
+					function(syncNext) {
+						/*
+						TODO: check before sending the real response.
+						if (!res.headersSent) {
+							processResponseHeaders(modsecConnector, req, res, syncNext);
+						} else {
+							syncNext();
+						}*/
+						processResponseHeaders(modsecConnector, req, res, syncNext);
+					},
+					function(syncNext) {
+						processResponseBody(modsecConnector, req, res, syncNext);
+					}
+				], next);
+				res.status(404);
+			});
+			next();
 		}
 	}
 }
